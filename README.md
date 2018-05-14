@@ -22,7 +22,63 @@ Or install it yourself as:
 
 ## Usage
 
-TODO: Write usage instructions here
+### Getting Started
+  Your interaction should inherit from Interaction::Base
+  ```
+    class ThingToDo < Interaction::Base
+      #   code
+    end
+  ```
+
+### Input
+The Input object is responsible for ingesting parameters for the interactor and converting hash keys to dot methods.
+
+  `ThingToDo.call(greeting: "Bonjour!")`
+
+  ```
+    class ThingToDo < Interaction::Base
+      def call
+        # input.greeting => "Bonjour!"
+      end
+    end
+  ```
+
+  You get some inputs for free:
+  ```
+    #   input.inputs_given? => true
+    #   input.exceptions => [TypeError]
+  ```
+  You can add validations for your inputs:
+  ```
+  coming soon
+  ```
+
+### Result
+  Your interaction also has a Result object that is responsible for reporting the status and details
+  of the action it was initialized on. A Result is a success until it is explicitly invoked to fail.
+
+  ```
+    class ThingToDo < Interaction::Base
+      def call
+        if determine_language(input.greeting)
+          result.details = { farewell: farewell_for_greeting(input.greeting) }
+        else
+          result.fail(error: "Language couldn't be determined.")
+        end
+      end
+    end
+  ```
+
+
+  `thing_to_do = ThingToDo.call(greeting: "Bonjour!")`
+  `thing_to_do.details => { farewell: "Au revoir" }`
+  `thing_to_do.success? => true`
+  `thing_to_do.failure? => false`
+
+### Exceptions
+```
+coming soon
+```
 
 ## Development
 
