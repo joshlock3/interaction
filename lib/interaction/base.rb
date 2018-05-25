@@ -41,7 +41,7 @@ module Interaction
         class_name: self.class.name
       )
 
-      fail_from_exception(exeception: error.message)
+      fail_from_exception(error: error.message)
     end
 
     def fail_from_exception(args)
