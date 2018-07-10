@@ -37,6 +37,10 @@ module Interaction
       @failure
     end
 
+    def error
+      @details[:error]
+    end
+
     def fail(details = {})
       @failure = true
       @details = details

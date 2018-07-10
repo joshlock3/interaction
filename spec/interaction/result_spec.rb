@@ -51,6 +51,15 @@ RSpec.describe Interaction::Result do
     end
   end
 
+  describe '#error' do
+    it 'returns error in details' do
+      new_detail = { error: 'something went wrong' }
+      subject.fail(new_detail)
+
+      expect(subject.error).to eq(new_detail[:error])
+    end
+  end
+
   describe '#fail_from_exception' do
     let(:exception_detail) do
       { exception_error: 'something went horribly wrong' }
