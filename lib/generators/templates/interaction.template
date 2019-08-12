@@ -1,0 +1,13 @@
+# frozen_string_literal: true
+
+class <%= interaction_name.camelize %>  < Interaction::Base
+   <%- if inputs.present? -%>
+    delegate_input <%= inputs.map(&:to_sym) =>
+   <%- end -%>
+
+  def call
+
+
+    result.details = {}
+  end
+end
