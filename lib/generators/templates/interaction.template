@@ -1,0 +1,24 @@
+# frozen_string_literal: true
+
+class <%= name.classify %> < Interaction::Base
+<%- if options.inputs.present? -%>
+  delegate_input <%- options.inputs.each_with_index do | input, index | -%>:<%= "#{input}#{index && options.inputs.count > index + 1  ? ', ' : ' '}" %><%- end -%>
+
+<%- end -%>
+
+  def call
+    return result.fail(error: action_guards) if action_guards.present? # Fail if guard message
+
+    # Do some thing
+
+    result.details = {} #Output details - example is a modified object
+  end
+
+  private
+
+  def action_guards
+    # Add guard clauses in order of importance
+
+    # return 'Some error prevented this interaction from running' if true != false
+  end
+end
