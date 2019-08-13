@@ -1,0 +1,15 @@
+# frozen_string_literal: true
+
+require 'rails_helper'
+
+RSpec.describe <%= name.classify %> do
+  let(:<%= name %>) { described_class }
+
+
+  # Interactions succeed unless explicitly failed or encounter an exception
+  it 'succeeds' do
+    expect(<%= name %>.call).to be_success
+  end
+
+  pending "add some examples to (or delete) #{__FILE__}"
+end
