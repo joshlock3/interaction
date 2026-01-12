@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
-require_relative 'input'
-require_relative 'input_delegator'
-require_relative 'input_validator'
-require_relative 'result'
-require_relative 'exception'
+require_relative "input"
+require_relative "input_delegator"
+require_relative "input_validator"
+require_relative "result"
+require_relative "exception"
 
 module Interaction
   class Base

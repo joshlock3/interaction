@@ -1,4 +1,4 @@
-require 'forwardable'
+require "forwardable"
 
 module Interaction
   module InputDelegator
@@ -13,7 +13,7 @@ module Interaction
 
     module ClassMethods
       def delegate_input(*expected_inputs)
-        self.def_delegators(:input, *(expected_inputs))
+        def_delegators(:input, *expected_inputs)
       end
     end
   end

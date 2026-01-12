@@ -8,10 +8,9 @@ module Interaction
       end
     end
 
-
     module ClassMethods
       def require_input(*expected_inputs)
-        self.class_eval do
+        class_eval do
           @expected_inputs = expected_inputs
           original_method = instance_method(:call)
 
@@ -26,7 +25,7 @@ module Interaction
             end
             raise InputError, "#{inputs_with_nil_values} was given blank input" unless inputs_with_nil_values.empty?
 
-            original_method.bind(self).call
+            original_method.bind_call(self)
           end
         end
 
