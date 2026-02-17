@@ -1,30 +1,29 @@
 # frozen_string_literal: true
 
-require "ostruct"
-
 module Interaction
-  #
-  # The Input object is responsible for ingesting parameters for the
-  # interactor and converting hash keys to dot methods.
-  #
-  #
-  # Example usage
-  #   params = { greeting: "hello" }
-  #   input = Input.new(params)
-  #
-  #   input.greeting => "hello"
-  #   input.inputs_given? => true
-  #   input.exceptions => [TypeError]
-  #
-  #
-  class Input < OpenStruct
-    def initialize(args = nil)
-      @_has_args = !(args.nil? || args.size.zero?)
-      super
+  class Input
+    def initialize(args = {})
+      @_args = args.to_h
     end
 
     def inputs_given?
-      @_has_args
+      !@_args.empty?
+    end
+
+    def to_h
+      @_args
+    end
+
+    def method_missing(method_name, *args, &block)
+      if @_args.key?(method_name)
+        @_args[method_name]
+      else
+        super
+      end
+    end
+
+    def respond_to_missing?(method_name, include_private = false)
+      @_args.key?(method_name) || super
     end
   end
 end

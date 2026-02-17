@@ -1,42 +1,56 @@
-require "rspec"
+require "spec_helper"
 require "interaction/input"
 
 RSpec.describe Interaction::Input do
-  let(:boolean) { [TrueClass, FalseClass] }
-  subject { Interaction::Input.new }
+  let(:params) { { name: "Alice", age: 30 } }
+  subject { described_class.new(params) }
 
-  it { respond_to?(:capture_exception?) }
-  it { respond_to?(:inputs_given?) }
-
-  describe "#inputs_given?" do
-    it "returns a boolean" do
-      expect(boolean).to include(subject.inputs_given?.class)
+  describe "#initialize" do
+    it "accepts a hash" do
+      expect(subject).to be_a(Interaction::Input)
     end
 
-    it "returns false by default" do
-      expect(subject.inputs_given?).to eq(false)
-    end
-
-    context "when arguments are provided" do
-      subject { Interaction::Input.new(input_arguments) }
-      let(:input_arguments) do
-        {greeting: "ciao!"}
-      end
-
-      it "returns true" do
-        expect(subject.inputs_given?).to eq(true)
-      end
+    it "accepts nil" do
+      expect(described_class.new(nil)).to be_a(Interaction::Input)
     end
   end
 
-  context "when arguments are given" do
-    subject { Interaction::Input.new(input_arguments) }
-    let(:input_arguments) do
-      {greeting: "bonjour!"}
+  describe "#inputs_given?" do
+    it "returns true when args are provided" do
+      expect(subject.inputs_given?).to be true
     end
 
-    it "returns the value of the key-pair argument" do
-      expect(subject.greeting).to eq(input_arguments[:greeting])
+    it "returns false when args are empty" do
+      expect(described_class.new({}).inputs_given?).to be false
+    end
+
+    it "returns false when args are nil" do
+      expect(described_class.new(nil).inputs_given?).to be false
+    end
+  end
+
+  describe "dynamic access" do
+    it "allows access via dot notation" do
+      expect(subject.name).to eq("Alice")
+      expect(subject.age).to eq(30)
+    end
+
+    it "raises NoMethodError for missing keys" do
+      expect { subject.unknown }.to raise_error(NoMethodError)
+    end
+    
+    it "responds to known keys" do
+        expect(subject.respond_to?(:name)).to be true
+    end
+    
+    it "does not respond to unknown keys" do
+        expect(subject.respond_to?(:unknown)).to be false
+    end
+  end
+
+  describe "#to_h" do
+    it "returns the underlying hash" do
+      expect(subject.to_h).to eq(params)
     end
   end
 end
