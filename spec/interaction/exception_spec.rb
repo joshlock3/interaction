@@ -4,7 +4,7 @@ require "interaction/exception"
 RSpec.describe Interaction::Exception do
   describe ".report" do
     let(:error) { StandardError.new("Boom") }
-    let(:tags) { { tag: "value" } }
+    let(:tags) { {tag: "value"} }
     let(:class_name) { "MyClass" }
     let(:error_handler) { spy("ErrorHandler") }
 

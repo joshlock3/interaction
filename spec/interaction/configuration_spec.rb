@@ -54,15 +54,52 @@ RSpec.describe Interaction::Configuration do
     end
   end
 
+  describe "#enqueue_synchronously?" do
+    it "defaults to a callable" do
+      expect(subject.enqueue_synchronously?).to eq(false).or eq(true)
+    end
+
+    it "returns true when set to a literal true" do
+      subject.enqueue_synchronously = true
+      expect(subject.enqueue_synchronously?).to eq(true)
+    end
+
+    it "returns false when set to a literal false" do
+      subject.enqueue_synchronously = false
+      expect(subject.enqueue_synchronously?).to eq(false)
+    end
+
+    it "evaluates callables on each access" do
+      toggle = true
+      subject.enqueue_synchronously = -> { toggle }
+      expect(subject.enqueue_synchronously?).to eq(true)
+      toggle = false
+      expect(subject.enqueue_synchronously?).to eq(false)
+    end
+
+    it "returns true when Rails.env is test" do
+      rails = double("Rails", env: double("env", test?: true, development?: false))
+      stub_const("Rails", rails)
+      allow(rails).to receive(:respond_to?).with(:env).and_return(true)
+      expect(subject.enqueue_synchronously?).to eq(true)
+    end
+
+    it "returns true when Rails.env is development" do
+      rails = double("Rails", env: double("env", test?: false, development?: true))
+      stub_const("Rails", rails)
+      allow(rails).to receive(:respond_to?).with(:env).and_return(true)
+      expect(subject.enqueue_synchronously?).to eq(true)
+    end
+  end
+
   describe "Interaction.configure" do
     it "yields the configuration" do
-      Expectation = Class.new(StandardError)
       expect {
         Interaction.configure do |config|
           expect(config).to be_a(Interaction::Configuration)
-          raise Expectation
+          raise "expected-from-configure-block"
         end
-      }.to raise_error(Expectation)
+      }.to raise_error("expected-from-configure-block")
     end
   end
 end

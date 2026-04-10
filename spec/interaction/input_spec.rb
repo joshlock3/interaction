@@ -2,7 +2,7 @@ require "spec_helper"
 require "interaction/input"
 
 RSpec.describe Interaction::Input do
-  let(:params) { { name: "Alice", age: 30 } }
+  let(:params) { {name: "Alice", age: 30} }
   subject { described_class.new(params) }
 
   describe "#initialize" do
@@ -38,13 +38,13 @@ RSpec.describe Interaction::Input do
     it "raises NoMethodError for missing keys" do
       expect { subject.unknown }.to raise_error(NoMethodError)
     end
-    
+
     it "responds to known keys" do
-        expect(subject.respond_to?(:name)).to be true
+      expect(subject.respond_to?(:name)).to be true
     end
-    
+
     it "does not respond to unknown keys" do
-        expect(subject.respond_to?(:unknown)).to be false
+      expect(subject.respond_to?(:unknown)).to be false
     end
   end
 

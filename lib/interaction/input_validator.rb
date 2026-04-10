@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Interaction
   InputError = Class.new(StandardError)
 
@@ -10,12 +12,17 @@ module Interaction
 
     module ClassMethods
       def require_input(*expected_inputs)
-        @expected_inputs = expected_inputs
-        prepend Validator
+        @expected_inputs ||= []
+        @expected_inputs.concat(expected_inputs)
+        unless @_interaction_validator_prepended
+          prepend Validator
+
+          @_interaction_validator_prepended = true
+        end
       end
 
       def expected_inputs
-        @expected_inputs
+        @expected_inputs || []
       end
     end
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Interaction
   module InputDelegator
     class << self
@@ -5,8 +7,6 @@ module Interaction
         base.extend ClassMethods
       end
     end
-
-    InputError = Class.new(StandardError)
 
     module ClassMethods
       def delegate_input(*expected_inputs)

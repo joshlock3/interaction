@@ -3,6 +3,7 @@
 module Interaction
   class Configuration
     attr_accessor :on_error
+    attr_writer :enqueue_synchronously
 
     def initialize
       @on_error = ->(error, **kwargs) {
@@ -20,6 +21,18 @@ module Interaction
 
         warn(formatted)
       }
+
+      @enqueue_synchronously = lambda {
+        defined?(Rails) && Rails.respond_to?(:env) && Rails.env && (Rails.env.test? || Rails.env.development?)
+      }
+    end
+
+    # Returns true when `enqueue` should run jobs synchronously
+    # (perform_now) rather than enqueuing them (perform_later).
+    # Accepts either a boolean or a callable in the setter.
+    def enqueue_synchronously?
+      callable = @enqueue_synchronously
+      callable.respond_to?(:call) ? !!callable.call : !!callable
     end
   end
 
