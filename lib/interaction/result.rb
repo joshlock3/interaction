@@ -80,9 +80,14 @@ module Interaction
     # Called from Base's top-level rescue. Defaults code to :server_error
     # unless the caller (or custom_exception_detail) supplied a more specific one.
     # Precedence: default < caller-supplied < custom_exception_detail.
+    # Merges like fail_with (since 4.0), so details set before the
+    # exception survive.
     def fail_from_exception(details)
       merged = {code: Codes::SERVER_ERROR}.merge(details).merge(@custom_exception_detail)
-      fail(merged)
+      @failure = true
+      @details = @details.merge(merged)
+      @code = merged[:code]
+      self
     end
   end
 end

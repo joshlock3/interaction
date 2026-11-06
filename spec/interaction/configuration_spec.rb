@@ -31,7 +31,7 @@ RSpec.describe Interaction::Configuration do
         sentry = double("Sentry", initialized?: true)
         stub_const("Sentry", sentry)
         allow(sentry).to receive(:respond_to?).with(:initialized?).and_return(true)
-        expect(sentry).to receive(:capture_exception).with(error, tags: kwargs[:tags])
+        expect(sentry).to receive(:capture_exception).with(error, tags: kwargs[:tags], contexts: {})
         subject.on_error.call(error, **kwargs)
       end
 

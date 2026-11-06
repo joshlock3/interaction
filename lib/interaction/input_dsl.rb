@@ -6,8 +6,8 @@ require_relative "codes"
 module Interaction
   #
   # The `input` DSL — a single declarative form for declaring inputs,
-  # their types, requirement, defaults, and coercion. Replaces both
-  # `delegate_input` and `require_input` in new code.
+  # their types, requirement, defaults, coercion and strictness. Replaces
+  # `delegate_input` (deprecated) in new code.
   #
   # Usage:
   #
@@ -38,16 +38,42 @@ module Interaction
       end
     end
 
-    Declaration = Struct.new(:name, :type, :required, :default, :coerce, keyword_init: true)
+    Declaration = Struct.new(:name, :type, :required, :default, :coerce, :strict, keyword_init: true)
+
+    # Instance methods an input accessor would shadow, breaking the
+    # interaction itself.
+    RESERVED_NAMES = %i[
+      call input result fail_with fail_from_exception handle_exception enqueue run_interaction
+    ].freeze
+
+    # Symbol types the strict check understands; :boolean is special-cased.
+    STRICT_SYMBOL_TYPES = {
+      string: String,
+      integer: Integer,
+      float: Float,
+      symbol: Symbol,
+      date: Date,
+      hash: Hash,
+      array: Array
+    }.freeze
 
     module ClassMethods
-      def input(name, type = nil, required: true, default: nil, coerce: false)
+      # strict: true fails the interaction with :invalid_input when a
+      # present value isn't of the declared type (checked after coercion).
+      # Defaults to Interaction.configuration.strict_inputs. Types the
+      # check doesn't understand (e.g. `[String]`) are never checked.
+      def input(name, type = nil, required: true, default: nil, coerce: false, strict: nil)
+        if RESERVED_NAMES.include?(name.to_sym)
+          raise ArgumentError, "input :#{name} is reserved — it would shadow Interaction::Base##{name}"
+        end
+
         input_declarations[name] = Declaration.new(
           name: name,
           type: type,
           required: required,
           default: default,
-          coerce: coerce
+          coerce: coerce,
+          strict: strict
         )
 
         define_method(name) do
@@ -92,10 +118,31 @@ module Interaction
         decls.each do |name, decl|
           # Invoke the accessor so defaults are resolved and cached once.
           value = send(name)
-          next unless decl.required
-          return "#{name} is required" if _blank_for_input?(value)
+          return "#{name} is required" if decl.required && _blank_for_input?(value)
+          next if value.nil?
+
+          if _strict_input?(decl) && !_matches_input_type?(value, decl.type)
+            return "#{name} must be #{_describe_input_type(decl.type)}"
+          end
         end
         nil
+      end
+
+      def _strict_input?(decl)
+        decl.strict.nil? ? Interaction.configuration.strict_inputs : decl.strict
+      end
+
+      def _matches_input_type?(value, type)
+        return value == true || value == false if type == :boolean
+        klass = type.is_a?(Module) ? type : STRICT_SYMBOL_TYPES[type]
+        klass.nil? || value.is_a?(klass)
+      end
+
+      def _describe_input_type(type)
+        return "a boolean" if type == :boolean
+        klass = type.is_a?(Module) ? type : STRICT_SYMBOL_TYPES[type]
+        article = /\A[AEIOU]/.match?(klass.name) ? "an" : "a"
+        "#{article} #{klass.name}"
       end
 
       def _blank_for_input?(value)

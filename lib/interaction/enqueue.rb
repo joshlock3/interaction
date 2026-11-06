@@ -19,20 +19,23 @@ module Interaction
   #   end
   #
   # The sync/async decision is driven by `Interaction.configuration.enqueue_synchronously?`.
-  # See Configuration for how to override the default.
+  #
+  # The job is handed to `Interaction.configuration.after_commit`, which
+  # by default defers it until every open ActiveRecord transaction has
+  # committed (and drops it if one rolls back). Outside a transaction it
+  # runs immediately. This keeps a job from reading rows that aren't
+  # committed yet, or acting on writes that end up rolled back.
   #
   module Enqueue
     def enqueue(job_class, *args, **kwargs)
-      if Interaction.configuration.enqueue_synchronously?
+      sync = Interaction.configuration.enqueue_synchronously?
+      Interaction.configuration.after_commit.call do
+        method = sync ? :perform_now : :perform_later
         if kwargs.empty?
-          job_class.perform_now(*args)
+          job_class.public_send(method, *args)
         else
-          job_class.perform_now(*args, **kwargs)
+          job_class.public_send(method, *args, **kwargs)
         end
-      elsif kwargs.empty?
-        job_class.perform_later(*args)
-      else
-        job_class.perform_later(*args, **kwargs)
       end
     end
   end

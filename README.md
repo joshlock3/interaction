@@ -2,7 +2,7 @@
 
 A small Ruby gem for the service object / interactor pattern. Every interaction is a class that inherits from `Interaction::Base`, implements `#call`, and returns a `Result` object carrying `success?`, `failure?`, `details`, `error`, and a typed failure `code`.
 
-The gem is deliberately small — the entire library is under 500 lines — and has no runtime dependencies. It stays out of your way: there is no Rails coupling in the core, no forced result shape, no magic. The opinionated parts (input declaration, guards, composition, hooks) are opt-in and composable.
+The gem is deliberately small — the entire library is under 500 lines — and has no runtime dependencies. It stays out of your way: there is no Rails coupling in the core, no forced result shape, no magic. The opinionated parts (input declaration, guards, composition, transactions) are opt-in and composable.
 
 **Core value proposition:** every unit of business logic is a single class with one public entry point, one return type, and a predictable contract. Callers (GraphQL resolvers, controllers, jobs, other interactions) can always inspect `result.success?` and `result.code` without having to wrap calls in `rescue`.
 
@@ -118,7 +118,7 @@ class UpdateUser < Interaction::Base
 end
 ```
 
-Inputs declared with `input` become instance methods. They can be read from inside `#call`, guards, hooks, and private methods. Values are resolved once and cached per call.
+Inputs declared with `input` become instance methods. They can be read from inside `#call`, guards, and private methods. Values are resolved once and cached per call.
 
 **Required vs optional.** `required: true` (the default) means the value must be present and non-blank. Missing or blank required inputs cause the interaction to fail with `code: :invalid_input` before `#call` runs. A default (if any) is applied before the required check, so `input :limit, Integer, required: true, default: 20` never fails for blank input.
 
@@ -142,24 +142,34 @@ input :count, Integer, default: 0, coerce: true
 
 Built-in coercions: `:string`/`String`, `:integer`/`Integer`, `:boolean`, `:date`/`Date`, `:hash`/`Hash`, `:array`/`Array`. Unknown types pass through unchanged. Failed coercions return the original value — validation errors surface through the `required:` check, not coercion.
 
+**Strict types (4.0):** pass `strict: true` to fail with `:invalid_input` when a present value isn't of the declared type. The check runs after coercion, and only for types it understands (classes, plus `:string`, `:integer`, `:float`, `:symbol`, `:date`, `:hash`, `:array` and `:boolean`). `nil` is never type-checked, so optional inputs stay optional.
+
+```ruby
+input :count, Integer, strict: true
+SomeInteraction.call(count: "3")  # fails: "count must be an Integer"
+```
+
+`strict:` defaults to `Interaction.configuration.strict_inputs` (`false`), so you can turn it on globally once your declarations are accurate.
+
+**Reserved names (4.0):** `input` raises `ArgumentError` for names that would shadow the interaction's own methods (`call`, `input`, `result`, `fail_with`, `fail_from_exception`, `handle_exception`, `enqueue`, `run_interaction`).
+
 **Inheritance:** `input` declarations are inherited by subclasses via an `inherited` hook. A subclass can override a parent declaration by redeclaring the same name.
 
-### Legacy `delegate_input` and `require_input`
+### Legacy `delegate_input` (deprecated)
 
-Pre-3.3 interactions use `delegate_input` for access and `require_input` for presence checks:
+Pre-3.3 interactions use `delegate_input` for access:
 
 ```ruby
 class Legacy < Interaction::Base
   delegate_input :user_id, :name
-  require_input :user_id
 
   def call
-    # user_id, name available; user_id presence-checked
+    # user_id, name available
   end
 end
 ```
 
-Both still work and are fully backwards-compatible. `require_input` failures become a failed `Result` (they raise `Interaction::InputError` internally, which `Base.call`'s top-level rescue converts into `result.fail_from_exception`). New code should prefer `input` — it covers the same ground and adds types, defaults, and coercion in one declaration. Mix freely during migration.
+It still works, but is deprecated: new code should use `input`. `require_input` was removed in 4.0 — declare the input with `input :name` (required by default) instead. Likewise `result.fail(...)` still works but replaces `details` wholesale; prefer `fail_with`.
 
 ## Guards
 
@@ -196,7 +206,7 @@ Like inputs, guards are inherited by subclasses.
 
 ## Composition with `run`
 
-`run` lets one interaction call another and automatically propagates failure. If the sub-interaction succeeds, `run` returns its `details` hash. If it fails, `run` copies the sub-result's details into the parent (including `code`) and halts execution via `throw :halt_interaction` — the rest of the parent's `#call` never runs.
+`run` lets one interaction call another and automatically propagates failure. If the sub-interaction succeeds, `run` returns its `details` hash. If it fails, `run` copies the sub-result's details into the parent (including `code`) and halts execution by raising `Interaction::Halt` — the rest of the parent's `#call` never runs.
 
 ```ruby
 class CreateGoalAndFollow < Interaction::Base
@@ -214,46 +224,42 @@ class CreateGoalAndFollow < Interaction::Base
 end
 ```
 
-`run` is a non-local exit — there's no exception overhead. The `throw :halt_interaction` is caught in `Base.call`. Nested composition (child runs grandchild) propagates failures all the way up.
+`run` (alias `run_interaction`) is a non-local exit. `Interaction::Halt` inherits from `::Exception`, not `StandardError`, so a bare `rescue` in your `#call` won't swallow it, and it rolls back a surrounding transaction (a `throw` would commit it — see below). It is rescued in `Base.call`. Nested composition (child runs grandchild) propagates failures all the way up.
+
+### `call!`
+
+`SomeInteraction.call!(args)` returns the result on success and raises `Interaction::Failure` (with `#result`, `#code` and the error as its message) on failure. Useful in jobs, scripts and tests. Inside another interaction, an unrescued `Failure` propagates like `run`: the parent fails with the same details and nothing is reported to `on_error`.
 
 This makes it cheap to break a large interaction into smaller, independently-testable ones. You no longer need to write manual `return result.fail(...) if sub_result.failure?` boilerplate for every sub-call.
 
-## Before/after hooks
+## Transactions
 
-Class-level `before_call` and `after_call` hooks run around `#call`. They accept method names (or multiple names per declaration):
+Declare `transactional` to run the interaction (input validation, guards and body) inside a transaction. It rolls back when the body raises, when a `run` halts, and when the result fails by any route — so `fail_with` after a write undoes the write:
 
 ```ruby
-class AddGoal < Interaction::Base
-  input :user_id, String, required: true
+class TransferGoal < Interaction::Base
+  transactional
 
-  before_call :log_start
-  after_call  :enqueue_gamification
+  input :goal, Goal
+  input :to_user, User
 
   def call
-    goal = Goal.create!(...)
-    result.details = { goal: goal }
-  end
-
-  private
-
-  def log_start
-    Rails.logger.info("AddGoal starting user=#{user_id}")
-  end
-
-  def enqueue_gamification
-    return if result.failure?
-    enqueue Gamification::CreateGoalActionJob, user_id
+    goal.update!(user: to_user)
+    return fail_with(error: "Limit reached", code: :conflict) if to_user.goals.count > 50
+    run Social::NotifyTransfer, goal: goal
   end
 end
 ```
 
-**`after_call` hooks always run**, on both success and failure. Check `result.failure?` inside the hook to skip work when the interaction failed.
+By default the transaction is `ActiveRecord::Base.transaction(requires_new: true)` when ActiveRecord is loaded (a savepoint when nested, so an inner interaction's rollback doesn't take its caller's work with it), and a no-op otherwise. If the body raises `ActiveRecord::Rollback` (which ActiveRecord swallows), the interaction fails with `:server_error` ("Transaction was rolled back") instead of returning success. Swap it with `config.transaction = ->(&block) { ... }`. A custom `config.transaction` must open a real savepoint (`requires_new: true`): when the interaction is nested in an outer transaction, a plain `ActiveRecord::Base.transaction` just joins it, so a halt or failure is detected but the writes are not rolled back. `transactional` is inherited; `transactional false` turns it off in a subclass.
 
-Hooks are inherited by subclasses. Parent hooks run before child hooks for `before_call`; both run for `after_call`.
+Why not `throw`? Since Rails 7.1 a `throw` out of a transaction block commits it, so 3.x's `catch(:halt_interaction)` would have committed half-finished work. 4.0 halts with an exception instead.
 
 ## Enqueueing jobs
 
 The `enqueue` helper wraps ActiveJob (or any job class exposing `perform_now` / `perform_later`). In Rails test and development environments it runs the job synchronously; in production it calls `perform_later`. This removes the per-interaction `Rails.env.test? ? :perform_now : :perform_later` conditional.
+
+Since 4.0 the job is handed to `config.after_commit`, which by default (`ActiveRecord.after_all_transactions_commit`, Rails 7.2+) holds it until every open transaction commits and drops it if one rolls back. Outside a transaction it runs immediately. So a job never reads rows that aren't committed yet, or acts on a write that was rolled back.
 
 ```ruby
 def call
@@ -283,6 +289,7 @@ Interaction::Codes::UNAUTHORIZED   # :unauthorized
 Interaction::Codes::FORBIDDEN      # :forbidden
 Interaction::Codes::NOT_FOUND      # :not_found
 Interaction::Codes::CONFLICT       # :conflict
+Interaction::Codes::RATE_LIMITED   # :rate_limited (4.0)
 Interaction::Codes::SERVER_ERROR   # :server_error
 Interaction::Codes::ALL            # [frozen array of all the above]
 ```
@@ -310,32 +317,50 @@ end
 
 ## Exception handling
 
-`Base.call` wraps the body of each interaction in a rescue that captures any `StandardError`, reports it through the configured `on_error` handler, and turns it into a failed `Result` with `code: :server_error`:
+`Base.call` wraps each interaction in a rescue that captures any `StandardError`, reports it through the configured `on_error` handler, and turns it into a failed `Result` with `code: :server_error`:
 
 ```ruby
 result = SomeInteraction.call(args)  # no need to rescue — exceptions become failures
 
 result.failed_with?(:server_error)   # true if an exception was rescued
-result.error                         # the exception message
+result.error                         # "Something went wrong" (config.exception_message)
 ```
 
-The default `on_error` handler:
+Since 4.0, `result.error` is a generic message rather than the exception's text, which can carry SQL, file paths or user data to clients. Set `config.exception_message` to a String, or a callable taking the error. The real exception still goes to `on_error`.
 
-1. Sends the exception to Sentry if Sentry is loaded and initialized
-2. Logs to `Rails.logger.error` if Rails is loaded
-3. Writes to stderr
+### Expected exceptions: `rescue_from`
 
-Override the default by setting a custom handler:
+Map exception classes to failure codes so they become ordinary failures, not reported crashes:
 
 ```ruby
 Interaction.configure do |c|
-  c.on_error = ->(error, class_name:, tags:) {
-    MyErrorTracker.notify(error, tags: tags, context: class_name)
+  c.rescue_from ActiveRecord::RecordInvalid, code: :invalid_input          # message: error.message
+  c.rescue_from ActiveRecord::RecordNotFound, code: :not_found, message: "Not found"
+  c.rescue_from Stripe::CardError, code: :conflict, message: ->(e) { e.user_message }
+end
+```
+
+Subclasses match, the last matching declaration wins, and mapped exceptions are not passed to `on_error`.
+
+### Reporting
+
+The default `on_error` handler:
+
+1. Sends the exception to Sentry if Sentry is loaded and initialized, with `tags:` and `contexts:`
+2. Logs to `Rails.logger.error` if Rails is loaded
+3. Writes to stderr
+
+Handlers receive `tags:`, `class_name:` and (since 4.0) `context:`, a description of the inputs that omits their values: their names, a reference for records (`User(abc123)` via `public_id`, or `User#42`), and only the class name for any other value. Raw input values are never in `context:`. The exception itself (its message and backtrace) is passed through unscrubbed, so it reaches logs and Sentry as raised; keep PII out of exception messages. Handlers that don't declare `context:` (or `**`) are called without it, so 3.x handlers keep working.
+
+```ruby
+Interaction.configure do |c|
+  c.on_error = ->(error, class_name:, tags:, context: nil) {
+    MyErrorTracker.notify(error, tags: tags, extra: context)
   }
 end
 ```
 
-Precedence for `code:` on exception paths: `:server_error` (default) < caller-supplied `code:` < the instance's `custom_exception_detail`. Interactions that want a more specific code on the exception path can set `self.custom_exception_detail = { code: :conflict }` at the start of `#call`.
+Precedence for `code:` on exception paths: `:server_error` (default) < caller-supplied `code:` < the instance's `custom_exception_detail`. Interactions that want a more specific code on the exception path can set `self.custom_exception_detail = { code: :conflict }` at the start of `#call`. Details set before the exception are kept (4.0).
 
 ## Testing with RSpec
 
@@ -389,7 +414,20 @@ Matchers require RSpec to be loaded. If you don't use RSpec, don't require `inte
 ```ruby
 Interaction.configure do |c|
   # Where exceptions get reported (default: Sentry + Rails.logger + stderr).
-  c.on_error = ->(error, class_name:, tags:) { ... }
+  c.on_error = ->(error, class_name:, tags:, context: nil) { ... }
+
+  # User-facing error for unexpected exceptions. String or ->(error) { }.
+  c.exception_message = "Something went wrong"
+
+  # Exceptions that are expected failures, not crashes.
+  c.rescue_from ActiveRecord::RecordInvalid, code: :invalid_input
+
+  # Default for `input ..., strict:`.
+  c.strict_inputs = false
+
+  # Wraps `transactional` interactions; `enqueue` defers jobs through after_commit.
+  c.transaction = ->(&block) { ActiveRecord::Base.transaction(requires_new: true, &block) }
+  c.after_commit = ->(&block) { ActiveRecord.after_all_transactions_commit(&block) }
 
   # Whether enqueue runs jobs synchronously. Accepts a callable or a boolean.
   c.enqueue_synchronously = -> { Rails.env.test? || Rails.env.development? }
@@ -404,7 +442,7 @@ Why this gem over something like `ActiveInteraction`?
 
 - **Smaller surface area.** Under 500 lines for the whole library. No Dry-Types, no filters, no I18n, no state machine. Fast to learn, fast to audit, fast to modify.
 - **Single return contract.** Every interaction returns a `Result`. Callers always know what to check. No exceptions leak out (unless you deliberately propagate them).
-- **Composable, not magical.** Inputs, guards, composition, and hooks are each their own small module. You can include any subset; you can inspect what's happening.
+- **Composable, not magical.** Inputs, guards, composition, and transactions are each their own small module. You can include any subset; you can inspect what's happening.
 - **Failure codes as a first-class signal.** `code:` is a machine-readable failure reason that callers (GraphQL, controllers, other interactions) can differentiate without string matching.
 - **No Rails coupling in the core.** `Base`, `Result`, and `Input` don't require Rails. The `enqueue` helper and the default `on_error` handler *use* Rails if it's loaded but don't require it.
 
@@ -416,18 +454,20 @@ For interactions that use the full DSL, the call flow is:
 
 ```
 Base.call(args)
-  └─ catch(:halt_interaction)
-       ├─ before_call_hooks run in declaration order
+  └─ transaction (only if `transactional`)
        └─ instance.call:
-            1. InputDsl::InstanceMethods#call  — validates inputs, fails with :invalid_input if any required missing
+            1. InputDsl::InstanceMethods#call  — validates inputs, fails with :invalid_input
             2. Guard::InstanceMethods#call      — runs guards in declaration order, halts on first failure
             3. your #call body                  — business logic
-       (exception here → rescued, converted to fail_from_exception)
-  └─ after_call_hooks run (even on failure)
+       └─ result failed? → raise Halt (rolls back)
+  ├─ rescue Halt              → result already failed (by `run`, or above)
+  ├─ rescue Failure (call!)   → copy its details, not reported
+  ├─ rescue rescue_from match → fail with the mapped code, not reported
+  └─ rescue StandardError     → on_error, fail with :server_error + exception_message
   └─ return result
 ```
 
-`run` inside `#call` throws `:halt_interaction` on sub-failure, skipping the rest of the body but still running `after_call` hooks.
+Jobs passed to `enqueue` run after the outermost transaction commits.
 
 ## Development
 

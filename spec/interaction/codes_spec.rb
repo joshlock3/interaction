@@ -14,7 +14,7 @@ RSpec.describe Interaction::Codes do
   describe "ALL" do
     it "lists every defined code" do
       expect(described_class::ALL).to contain_exactly(
-        :invalid_input, :unauthorized, :forbidden, :not_found, :conflict, :server_error
+        :invalid_input, :unauthorized, :forbidden, :not_found, :conflict, :rate_limited, :server_error
       )
     end
 

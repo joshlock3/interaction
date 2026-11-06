@@ -23,6 +23,7 @@ module Interaction
     FORBIDDEN = :forbidden
     NOT_FOUND = :not_found
     CONFLICT = :conflict
+    RATE_LIMITED = :rate_limited
     SERVER_ERROR = :server_error
 
     ALL = [
@@ -31,6 +32,7 @@ module Interaction
       FORBIDDEN,
       NOT_FOUND,
       CONFLICT,
+      RATE_LIMITED,
       SERVER_ERROR
     ].freeze
   end
